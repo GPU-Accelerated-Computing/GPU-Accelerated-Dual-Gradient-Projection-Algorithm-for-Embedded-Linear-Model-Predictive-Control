@@ -4,6 +4,8 @@
 #include <iostream>
 #include <stdexcept>
 
+// TODO : ones
+
 template <typename T>
 class Matrix {
 public:
@@ -59,6 +61,25 @@ public:
         return *this;
     }
 
+    void fill(std::initializer_list<T> values) {
+        if (values.size() != rows * cols) {
+            throw std::invalid_argument("Initializer list size does not match matrix dimensions.");
+        }
+
+        int index = 0;
+        for (const auto& val : values) {
+            data[index++] = val;
+        }
+    }
+
+    void ones() {
+        for (int i = 0; i < rows; i++) {
+            for (int j = 0; j < cols; j++) {
+                data[i * cols + j] = 1;
+            }
+        }
+    }
+
     // Identity matrix
     void identity() {
         if (rows != cols) {
@@ -86,31 +107,82 @@ public:
     }
 
     Matrix<T> multiply(const Matrix<T>& other) const {
-    if (cols != other.rows) {
-        throw std::invalid_argument("Incompatible matrices for multiplication");
-    }
-
-    Matrix<T> result(rows, other.cols);
-
-    for (int i = 0; i < rows; ++i) {
-        for (int j = 0; j < other.cols; ++j) {
-            T sum = 0;
-            for (int k = 0; k < cols; ++k) {
-                sum += (*this)[i][k] * other[k][j];
-            }
-            result[i][j] = sum;
+        // Check if the matrices can be multiplied (columns of this matrix must equal rows of other matrix)
+        if (cols != other.rows) {
+            throw std::invalid_argument("Incompatible matrices for multiplication");
         }
-    }
-    return result;
-    }
 
-    void operator + (){
-        for (int i = 0; i < rows; i++) {
-            for (int j = 0; j < cols; j++) {
-                data[i * cols + j] = data[i * cols + j] + data[i * cols + j];
+        // Create a new matrix to store the result (rows of this * columns of other)
+        Matrix<T> result(rows, other.cols);
+
+        // Perform the multiplication: result[i][j] = dot product of row i of this and column j of other
+        for (int i = 0; i < rows; ++i) {
+            for (int j = 0; j < other.cols; ++j) {
+                T sum = 0;
+                for (int k = 0; k < cols; ++k) {
+                    sum += (*this)[i][k] * other[k][j];  // Dot product of row i and column j
+                }
+                result[i][j] = sum;  // Set the computed value in the result matrix
             }
         }
+
+        return result;
     }
+
+    Matrix<T> operator*(const Matrix<T>& other) const {
+        if (cols != other.rows) {
+            throw std::invalid_argument("Incompatible matrices for multiplication");
+        }
+
+        Matrix<T> result(rows, other.cols);
+
+        for (int i = 0; i < rows; ++i) {
+            for (int j = 0; j < other.cols; ++j) {
+                T sum = 0;
+                for (int k = 0; k < cols; ++k) {
+                    sum += (*this)[i][k] * other[k][j];  
+                }
+                result[i][j] = sum;
+            }
+        }
+
+        return result;
+    }
+
+    Matrix<T> operator*(T scalar) const {
+        Matrix<T> result(rows, cols);
+        for (int i = 0; i < rows; ++i) {
+            for (int j = 0; j < cols; ++j) {
+                result[i][j] = (*this)[i][j] * scalar;
+            }
+        }
+        return result;
+    }
+        
+
+
+    // Matrix<T> result(rows, other.cols);
+    //     result.identity();
+
+    //     for (int i = 0; i < rows; ++i) {
+    //         for (int j = 0; j < other.cols; ++j) {
+    //             T sum = 0;
+    //             for (int k = 0; k < cols; ++k) {
+    //                 sum += (*this)[i][k] * other[k][j];
+    //             }
+    //             result[i][j] = sum;
+    //         }
+    //     }
+    //     return result;
+    // }
+
+    // void operator + (){
+    //     for (int i = 0; i < rows; i++) {
+    //         for (int j = 0; j < cols; j++) {
+    //             data[i * cols + j] = data[i * cols + j] + data[i * cols + j];
+    //         }
+    //     }
+    // }
 
     Matrix<T> augment(const Matrix<T>& other) const {
         if (this->rows != other.rows) {

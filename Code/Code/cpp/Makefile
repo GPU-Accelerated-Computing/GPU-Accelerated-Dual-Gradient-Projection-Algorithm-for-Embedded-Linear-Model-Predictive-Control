@@ -7,8 +7,11 @@ CXXFLAGS = -Wall -Wextra -std=c++11
 # Source files
 SRCS = gpad.cpp acceldualgrad.cpp
 
+# Object files directory
+OBJDIR = build
+
 # Object files
-OBJS = $(SRCS:.cpp=.o)
+OBJS = $(SRCS:%.cpp=$(OBJDIR)/%.o)
 
 # Executable name
 TARGET = main
@@ -21,7 +24,8 @@ $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
 # Compile source files to object files
-%.o: %.cpp
+$(OBJDIR)/%.o: %.cpp
+	@mkdir -p $(OBJDIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 # Clean up build files
