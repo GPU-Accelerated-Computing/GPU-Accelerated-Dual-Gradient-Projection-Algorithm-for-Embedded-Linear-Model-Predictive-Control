@@ -9,6 +9,7 @@
 #define ITTERATIONS 1
 #define EPSILON 1e-2
 
+
 int check (float* a, float* b, int n) {
     for (int i = 0; i < n; i++) {
         if (abs(a[i] - b[i]) > EPSILON) {
@@ -553,12 +554,12 @@ int main() {
 
 
 __global__
-void vva(float *a, float *b, float *c, int n) {
+void vvs(float *a, float *b, float *c, int n) {
     /*
-        This kernel is used for vector vector addition.
+        This kernel is used for vector vector subtraction.
     */
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
     if (tid < n) {
-        c[tid] = a[tid] * b[tid];
+        c[tid] = a[tid] - b[tid];
     }
 }
