@@ -4,7 +4,7 @@
 #include <cstdio>
 
 #define THREAD_GRAIN 5
-#define BLOCK_SIZE 128 + 32
+#define BLOCK_SIZE 256
 
 #define ITTERATIONS 1
 #define EPSILON 1e-2
@@ -382,14 +382,37 @@ void mv_warpReduceGranular(const float* __restrict__ a, const float* __restrict_
     }
 }
 
+__global__ 
+void sweep(const float* __restrict__ a, const float* __restrict__ b, float* c, int m, int n) {
+    // printf("running");
+    /*
+    This kernel is a simple matrix-vector multiplication kernel.
+    It uses a single thread to compute the output of a row
+    */
+    extern __shared__ float b_shared[];
+    int tid = threadIdx.x + blockIdx.x * blockDim.x;
 
+    for(int i = threadIdx.x; i < m; i += blockDim.x){
+		b_shared[i] = b[i]; // coalesced memory accesses
+	}
+	__syncthreads(); 
+
+    for (int i = tid; i < m; i += gridDim.x * blockDim.x) {
+        float sum = 0.0f;
+        for (int j = 0; j < n; j++) {
+            sum += a[i * n + j] * b_shared[j]; // coalesced memory accesses
+        }
+        c[i] = sum;
+    }
+}
 
 //nvcc step2.cu -o step2 -ccbin "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.41.34120\bin\Hostx64\x64\cl.exe"
 // -ccbin is the path to the cl.exe compiler
 
 int main() {
-    const int M = 256; // Number of rows
-    const int N = 2700; // Number of columns
+    const int size = 100;
+    const int M = size * 5; // Number of rows
+    const int N = size * 2; // Number of columns
     size_t sizeA = M * N * sizeof(float);
     size_t sizeB = N * sizeof(float);
     size_t sizeC = M * sizeof(float);
@@ -416,7 +439,7 @@ int main() {
     }
 
     float *d_a, *d_b, *d_d;
-    float *d_c, *d_c2, *d_c3, *d_c4;
+    float *d_c, *d_c2, *d_c3, *d_c4, *d_c5;
     
     cudaMalloc(&d_a, sizeA);
     cudaMalloc(&d_b, sizeB);
@@ -425,6 +448,7 @@ int main() {
     cudaMalloc(&d_c2, sizeC);
     cudaMalloc(&d_c3, sizeC);
     cudaMalloc(&d_c4, sizeC);
+    cudaMalloc(&d_c5, sizeC);
 
     cudaMemcpy(d_a, h_a, sizeA, cudaMemcpyHostToDevice);
     cudaMemcpy(d_b, h_b, sizeB, cudaMemcpyHostToDevice);
@@ -433,6 +457,7 @@ int main() {
     cudaMemset(d_c2, 0, sizeC);
     cudaMemset(d_c3, 0, sizeC);
     cudaMemset(d_c4, 0, sizeC);
+    cudaMemset(d_c5, 0, sizeC);
 
     dim3 block(BLOCK_SIZE); // Threads per block
 
@@ -464,9 +489,12 @@ int main() {
 
     size_t sharedMemorySize = 64 * sizeof(float);//(BLOCK_SIZE + 31 / 32) * sizeof(float); // Shared memory for warp sums
 
+    dim3 gridDimStep4((int)ceil((float)M/256.0), 1, 1); // Dim for lukes kernel
+	dim3 blockDimStep4(256, 1, 1); 
+
     //timers for each kernel
-    float time[5];
-    float time_avg[5] = {0.0f};
+    float time[6];
+    float time_avg[6] = {0.0f};
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
@@ -481,6 +509,7 @@ int main() {
         time_avg[0] += time[0];
     }
     time_avg[0] /= ITTERATIONS;
+    mv_reduce<<<grid_mvReduce, block, sharedMemorySize>>>(d_a, d_b, d_c, M, N);
 
     // mv_reduce
     for (int i = 0; i < ITTERATIONS; i++){
@@ -495,6 +524,7 @@ int main() {
 
     cudaMemcpy(h_c, d_c, sizeC, cudaMemcpyDeviceToHost);
 
+    mv_warpReduce<<<grid_mvWarpReduce, block, sharedMemorySize>>>(d_a, d_b, d_c2, M, N);
     // mv_warpReduce
     for (int i = 0; i < ITTERATIONS; i++){
         cudaEventRecord(start);
@@ -508,6 +538,8 @@ int main() {
 
     cudaMemcpy(h_c2, d_c2, sizeC, cudaMemcpyDeviceToHost);
 
+    mv_warpReduceNoRollOver<<<grid_mvWarpReduceNoRoll, block, sharedMemorySize>>>(d_a, d_b, d_c3, M, N);
+
     // mv_warpReduceNoRollOver
     for (int i = 0; i < ITTERATIONS; i++){
         cudaEventRecord(start);
@@ -520,6 +552,7 @@ int main() {
     time_avg[3] /= ITTERATIONS;
 
     cudaMemcpy(h_c3, d_c3, sizeC, cudaMemcpyDeviceToHost);
+    mv_warpReduceNoRollOverGranular<<<gridGranular, block, sharedMemorySize>>>(d_a, d_b, d_c3, M, N);
 
     // mv_warpReduceNoRollOverGranular
     for (int i = 0; i < ITTERATIONS; i++){
@@ -532,6 +565,19 @@ int main() {
     }
     time_avg[4] /= ITTERATIONS;
 
+    cudaDeviceSynchronize();
+    sweep<<<gridDimStep4, BLOCK_SIZE, M*sizeof(float)>>>(d_a, d_b, d_c4, N, M);
+
+    for (int i = 0; i < ITTERATIONS; i++){
+        cudaEventRecord(start);
+        sweep<<<gridDimStep4, BLOCK_SIZE, M*sizeof(float)>>>(d_a, d_b, d_c4, N, M);
+        cudaEventRecord(stop);
+        cudaEventSynchronize(stop);
+        cudaEventElapsedTime(&time[5], start, stop);
+        time_avg[5] += time[5];
+    }
+    time_avg[5] /= ITTERATIONS;
+
     cudaMemcpy(h_c4, d_c4, sizeC, cudaMemcpyDeviceToHost);
 
     printf("Sequential: %f ms\n", time_avg[0]);
@@ -539,6 +585,7 @@ int main() {
     printf("mv_warpReduce: %f ms\n", time_avg[2]);
     printf("mv_warpReduceNoRollOver: %f ms\n", time_avg[3]);
     printf("mv_warpReduceNoRollOverGranular: %f ms\n", time_avg[4]);
+    printf("StepFourGPADFlippedParRows: %f ms\n", time_avg[5]);
 
     // Cleanup
     free(h_a);
